@@ -1,2 +1,18 @@
-# Compiled COBOL binary
+# Compiled COBOL binary and build output
 build/
+
+# GnuCOBOL intermediate files
+*.o
+*.so
+*.dylib
+*.c.l[0-9]*
+*.i
+
+# Compiled COBOL executables (in case built outside build/)
+mcp-server
+*.exe
+
+# Editor backup files
+*~
+*.swp
+*.swo
