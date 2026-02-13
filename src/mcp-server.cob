@@ -676,8 +676,9 @@ EXTRACT-JSON-VALUE-IN-ARGUMENTS.
 *> ============================================================
 *> DISPATCH-METHOD
 *> Route the parsed method to the appropriate handler.
-*> In this skeleton step, most handlers are placeholders.
-*> Steps 002 and 003 will fill in the real logic.
+*> Supports the full MCP lifecycle: initialize, initialized
+*> notification, ping, tools/list, and tools/call.
+*> Unknown methods receive a -32601 error response.
 *> ============================================================
 DISPATCH-METHOD.
     MOVE FUNCTION TRIM(WS-METHOD) TO WS-TRIMMED-METHOD
@@ -700,13 +701,31 @@ DISPATCH-METHOD.
 
 *> ============================================================
 *> HANDLE-INITIALIZE
-*> Placeholder for initialize handler (step 002).
-*> For now, returns a minimal success response.
+*> Respond with MCP server capabilities, protocol version,
+*> and server identity. This is the MCP handshake response.
+*>
+*> Response shape:
+*>   {"jsonrpc":"2.0","id":<id>,"result":{
+*>     "protocolVersion":"2025-11-25",
+*>     "serverInfo":{"name":"cobol-mcp-server","version":"1.0.0"},
+*>     "capabilities":{"tools":{}}
+*>   }}
 *> ============================================================
 HANDLE-INITIALIZE.
     IF ID-IS-PRESENT
-        MOVE "{}" TO WS-RESULT-CONTENT
+        STRING
+            '{"protocolVersion":"2025-11-25"'
+            DELIMITED SIZE
+            ',"serverInfo":{"name":"cobol-mcp-server"'
+            DELIMITED SIZE
+            ',"version":"1.0.0"}'
+            DELIMITED SIZE
+            ',"capabilities":{"tools":{}}}'
+            DELIMITED SIZE
+            INTO WS-RESULT-CONTENT
+        END-STRING
         PERFORM BUILD-SUCCESS-RESPONSE
+        SET SERVER-IS-INITIALIZED TO TRUE
     END-IF
     .
 
@@ -722,8 +741,9 @@ HANDLE-NOTIFICATIONS-INITIALIZED.
 
 *> ============================================================
 *> HANDLE-PING
-*> Placeholder for ping handler (step 002).
-*> For now, returns a minimal success response.
+*> Respond with an empty result object to confirm the server
+*> is alive. Can be received at any time during the session.
+*> Response: {"jsonrpc":"2.0","id":<id>,"result":{}}
 *> ============================================================
 HANDLE-PING.
     IF ID-IS-PRESENT
@@ -734,26 +754,109 @@ HANDLE-PING.
 
 *> ============================================================
 *> HANDLE-TOOLS-LIST
-*> Placeholder for tools/list handler (step 003).
-*> For now, returns an empty tools array.
+*> Returns the list of available tools. Step 003 will populate
+*> the full tool definitions. For now, returns an empty array.
+*> Response: {"jsonrpc":"2.0","id":<id>,"result":{"tools":[]}}
 *> ============================================================
 HANDLE-TOOLS-LIST.
     IF ID-IS-PRESENT
-        MOVE "{}" TO WS-RESULT-CONTENT
+        MOVE '{"tools":[]}' TO WS-RESULT-CONTENT
         PERFORM BUILD-SUCCESS-RESPONSE
     END-IF
     .
 
 *> ============================================================
 *> HANDLE-TOOLS-CALL
-*> Placeholder for tools/call handler (step 003).
-*> For now, returns an error indicating not implemented.
+*> Routes to the appropriate tool based on params.name.
+*> Step 003 will implement the actual tool logic.
+*> For now, dispatches based on tool name and returns a
+*> placeholder or error for unknown tools.
+*>
+*> The tool name was already extracted from params.name
+*> during PARSE-JSON-RPC-MESSAGE into WS-PARAM-NAME.
 *> ============================================================
 HANDLE-TOOLS-CALL.
     IF ID-IS-PRESENT
-        MOVE "{}" TO WS-RESULT-CONTENT
-        PERFORM BUILD-SUCCESS-RESPONSE
+        MOVE FUNCTION TRIM(WS-PARAM-NAME)
+            TO WS-TRIMMED-METHOD
+        EVALUATE WS-TRIMMED-METHOD
+            WHEN "add"
+                PERFORM HANDLE-TOOL-ADD
+            WHEN "format_currency"
+                PERFORM HANDLE-TOOL-FORMAT-CURRENCY
+            WHEN "validate_date"
+                PERFORM HANDLE-TOOL-VALIDATE-DATE
+            WHEN OTHER
+                PERFORM HANDLE-TOOL-NOT-FOUND
+        END-EVALUATE
     END-IF
+    .
+
+*> ============================================================
+*> HANDLE-TOOL-ADD
+*> Placeholder for the add tool (step 003).
+*> Returns a stub response for now.
+*> ============================================================
+HANDLE-TOOL-ADD.
+    STRING
+        '{"content":[{"type":"text","text":'
+        DELIMITED SIZE
+        '"add tool not yet implemented"}]}'
+        DELIMITED SIZE
+        INTO WS-RESULT-CONTENT
+    END-STRING
+    PERFORM BUILD-SUCCESS-RESPONSE
+    .
+
+*> ============================================================
+*> HANDLE-TOOL-FORMAT-CURRENCY
+*> Placeholder for the format_currency tool (step 003).
+*> Returns a stub response for now.
+*> ============================================================
+HANDLE-TOOL-FORMAT-CURRENCY.
+    STRING
+        '{"content":[{"type":"text","text":'
+        DELIMITED SIZE
+        '"format_currency tool not yet implemented"}]}'
+        DELIMITED SIZE
+        INTO WS-RESULT-CONTENT
+    END-STRING
+    PERFORM BUILD-SUCCESS-RESPONSE
+    .
+
+*> ============================================================
+*> HANDLE-TOOL-VALIDATE-DATE
+*> Placeholder for the validate_date tool (step 003).
+*> Returns a stub response for now.
+*> ============================================================
+HANDLE-TOOL-VALIDATE-DATE.
+    STRING
+        '{"content":[{"type":"text","text":'
+        DELIMITED SIZE
+        '"validate_date tool not yet implemented"}]}'
+        DELIMITED SIZE
+        INTO WS-RESULT-CONTENT
+    END-STRING
+    PERFORM BUILD-SUCCESS-RESPONSE
+    .
+
+*> ============================================================
+*> HANDLE-TOOL-NOT-FOUND
+*> Returns a tool result with isError set to true when
+*> an unknown tool name is requested via tools/call.
+*> This is a tool execution error, not a protocol error.
+*> ============================================================
+HANDLE-TOOL-NOT-FOUND.
+    STRING
+        '{"isError":true,"content":[{"type":"text","text":'
+        DELIMITED SIZE
+        '"Unknown tool: '
+        DELIMITED SIZE
+        WS-TRIMMED-METHOD DELIMITED SPACES
+        '"}]}' DELIMITED SIZE
+        INTO WS-RESULT-CONTENT
+    END-STRING
+    PERFORM BUILD-SUCCESS-RESPONSE
     .
 
 *> ============================================================
