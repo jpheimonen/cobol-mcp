@@ -132,16 +132,24 @@ WORKING-STORAGE SECTION.
 
 *> ============================================================
 *> TOOL EXECUTION WORKING VARIABLES
-*> (Placeholders for step 003 to populate)
 *> ============================================================
+
+*> --- Add tool variables ---
 01 WS-ADD-NUM-A              PIC S9(12)V9(4) VALUE 0.
 01 WS-ADD-NUM-B              PIC S9(12)V9(4) VALUE 0.
 01 WS-ADD-RESULT             PIC S9(12)V9(4) VALUE 0.
 01 WS-ADD-RESULT-STR         PIC X(32)   VALUE SPACES.
+01 WS-ADD-RESULT-EDITED      PIC -(12)9.9(4) VALUE SPACES.
 
+*> --- Currency formatting tool variables ---
+*> The crown jewel: COBOL's PICTURE clause for currency.
+*> This is the one thing COBOL does better than every
+*> modern language. Dollar sign, commas, decimal point,
+*> zero suppression -- all in a single PIC clause.
 01 WS-CURRENCY-INPUT         PIC S9(12)V9(2) VALUE 0.
-01 WS-CURRENCY-FORMATTED     PIC $$$,$$$,$$$.99 VALUE SPACES.
+01 WS-CURRENCY-FORMATTED     PIC $$$$,$$$,$$$.99.
 
+*> --- Date validation tool variables ---
 01 WS-DATE-INPUT             PIC X(8)    VALUE SPACES.
 01 WS-DATE-YEAR              PIC 9(4)    VALUE 0.
 01 WS-DATE-MONTH             PIC 9(2)    VALUE 0.
@@ -150,6 +158,27 @@ WORKING-STORAGE SECTION.
    88 DATE-IS-VALID                      VALUE 1.
    88 DATE-IS-INVALID                    VALUE 0.
 01 WS-DATE-ERROR-MSG         PIC X(128)  VALUE SPACES.
+01 WS-DATE-MAX-DAY           PIC 9(2)    VALUE 0.
+01 WS-LEAP-YEAR-FLAG         PIC 9       VALUE 0.
+   88 IS-LEAP-YEAR                       VALUE 1.
+   88 IS-NOT-LEAP-YEAR                   VALUE 0.
+01 WS-YEAR-REMAINDER         PIC 9(4)    VALUE 0.
+01 WS-DATE-LEN               PIC 9(2)    VALUE 0.
+
+*> --- Numeric validation variables ---
+01 WS-NUMERIC-CHECK-VALUE    PIC X(64)   VALUE SPACES.
+01 WS-NUMERIC-VALID-FLAG     PIC 9       VALUE 0.
+   88 NUMERIC-IS-VALID                   VALUE 1.
+   88 NUMERIC-IS-INVALID                 VALUE 0.
+01 WS-NUM-CHECK-POS          PIC 9(4)    VALUE 0.
+01 WS-NUM-CHECK-CHAR         PIC X       VALUE SPACE.
+01 WS-NUM-CHECK-LEN          PIC 9(4)    VALUE 0.
+01 WS-NUM-HAS-DECIMAL        PIC 9       VALUE 0.
+01 WS-NUM-HAS-DIGIT          PIC 9       VALUE 0.
+
+*> --- Tool result text building ---
+01 WS-TOOL-RESULT-TEXT       PIC X(512)  VALUE SPACES.
+01 WS-CURRENCY-TRIMMED       PIC X(32)   VALUE SPACES.
 
 *> ============================================================
 *> MISC WORKING VARIABLES
@@ -754,23 +783,63 @@ HANDLE-PING.
 
 *> ============================================================
 *> HANDLE-TOOLS-LIST
-*> Returns the list of available tools. Step 003 will populate
-*> the full tool definitions. For now, returns an empty array.
-*> Response: {"jsonrpc":"2.0","id":<id>,"result":{"tools":[]}}
+*> Returns the list of all three available tools with their
+*> names, descriptions, and input schemas.
+*> Each tool plays to a classic COBOL strength:
+*>   - add: COMPUTE verb arithmetic (since 1959)
+*>   - format_currency: PICTURE clause formatting
+*>   - validate_date: date validation with leap years
 *> ============================================================
 HANDLE-TOOLS-LIST.
     IF ID-IS-PRESENT
-        MOVE '{"tools":[]}' TO WS-RESULT-CONTENT
+        MOVE SPACES TO WS-RESULT-CONTENT
+        STRING
+            '{"tools":['
+
+            '{"name":"add",'
+            '"description":"Add two numbers together '
+            'using COBOL COMPUTE -- the original cloud '
+            'computing, circa 1959.",'
+            '"inputSchema":{"type":"object",'
+            '"properties":{"a":{"type":"number",'
+            '"description":"First number"},'
+            '"b":{"type":"number",'
+            '"description":"Second number"}},'
+            '"required":["a","b"]}}'
+
+            ',{"name":"format_currency",'
+            '"description":"Format a number as US '
+            'currency using COBOL PICTURE clause. '
+            'The one thing COBOL does better than every '
+            'modern language.",'
+            '"inputSchema":{"type":"object",'
+            '"properties":{"amount":{"type":"number",'
+            '"description":"Amount to format as currency'
+            '"}},"required":["amount"]}}'
+
+            ',{"name":"validate_date",'
+            '"description":"Validate a date in YYYYMMDD '
+            'format, including leap year rules. COBOL has '
+            'been validating dates since before most '
+            'programmers were born.",'
+            '"inputSchema":{"type":"object",'
+            '"properties":{"date":{"type":"string",'
+            '"description":"Date in YYYYMMDD format"}},'
+            '"required":["date"]}}'
+
+            ']}'
+            DELIMITED SIZE
+            INTO WS-RESULT-CONTENT
+        END-STRING
         PERFORM BUILD-SUCCESS-RESPONSE
     END-IF
     .
 
 *> ============================================================
 *> HANDLE-TOOLS-CALL
-*> Routes to the appropriate tool based on params.name.
-*> Step 003 will implement the actual tool logic.
-*> For now, dispatches based on tool name and returns a
-*> placeholder or error for unknown tools.
+*> Routes to the appropriate tool handler based on params.name.
+*> Dispatches to add, format_currency, or validate_date.
+*> Returns isError for unknown tool names.
 *>
 *> The tool name was already extracted from params.name
 *> during PARSE-JSON-RPC-MESSAGE into WS-PARAM-NAME.
@@ -794,15 +863,76 @@ HANDLE-TOOLS-CALL.
 
 *> ============================================================
 *> HANDLE-TOOL-ADD
-*> Placeholder for the add tool (step 003).
-*> Returns a stub response for now.
+*> Add two numbers together using COBOL COMPUTE.
+*> Extracts arguments "a" and "b" from the request,
+*> validates they are numeric, computes the sum, and
+*> returns the result as text.
 *> ============================================================
 HANDLE-TOOL-ADD.
+    *> Validate that argument "a" was provided and is numeric
+    MOVE FUNCTION TRIM(WS-PARAM-ARG-A)
+        TO WS-NUMERIC-CHECK-VALUE
+    PERFORM VALIDATE-NUMERIC-VALUE
+    IF NUMERIC-IS-INVALID
+        MOVE SPACES TO WS-RESULT-CONTENT
+        STRING
+            '{"isError":true,"content":[{"type":"text"'
+            ',"text":"Invalid input: argument '
+            WS-QUOTE DELIMITED SIZE
+            'a' DELIMITED SIZE
+            WS-QUOTE DELIMITED SIZE
+            ' must be numeric"}]}'
+            DELIMITED SIZE
+            INTO WS-RESULT-CONTENT
+        END-STRING
+        PERFORM BUILD-SUCCESS-RESPONSE
+        EXIT PARAGRAPH
+    END-IF
+    COMPUTE WS-ADD-NUM-A =
+        FUNCTION NUMVAL(FUNCTION TRIM(WS-PARAM-ARG-A))
+
+    *> Validate that argument "b" was provided and is numeric
+    MOVE FUNCTION TRIM(WS-PARAM-ARG-B)
+        TO WS-NUMERIC-CHECK-VALUE
+    PERFORM VALIDATE-NUMERIC-VALUE
+    IF NUMERIC-IS-INVALID
+        MOVE SPACES TO WS-RESULT-CONTENT
+        STRING
+            '{"isError":true,"content":[{"type":"text"'
+            ',"text":"Invalid input: argument '
+            WS-QUOTE DELIMITED SIZE
+            'b' DELIMITED SIZE
+            WS-QUOTE DELIMITED SIZE
+            ' must be numeric"}]}'
+            DELIMITED SIZE
+            INTO WS-RESULT-CONTENT
+        END-STRING
+        PERFORM BUILD-SUCCESS-RESPONSE
+        EXIT PARAGRAPH
+    END-IF
+    COMPUTE WS-ADD-NUM-B =
+        FUNCTION NUMVAL(FUNCTION TRIM(WS-PARAM-ARG-B))
+
+    *> The big moment: COBOL COMPUTE does what it was born to do
+    COMPUTE WS-ADD-RESULT = WS-ADD-NUM-A + WS-ADD-NUM-B
+
+    *> Format the result as a displayable string
+    MOVE WS-ADD-RESULT TO WS-ADD-RESULT-EDITED
+    MOVE FUNCTION TRIM(WS-ADD-RESULT-EDITED)
+        TO WS-ADD-RESULT-STR
+
+    *> Build the tool result response
+    MOVE SPACES TO WS-RESULT-CONTENT
     STRING
         '{"content":[{"type":"text","text":'
+        '"COBOL COMPUTE says: '
         DELIMITED SIZE
-        '"add tool not yet implemented"}]}'
-        DELIMITED SIZE
+        FUNCTION TRIM(WS-PARAM-ARG-A) DELIMITED SPACES
+        ' + ' DELIMITED SIZE
+        FUNCTION TRIM(WS-PARAM-ARG-B) DELIMITED SPACES
+        ' = ' DELIMITED SIZE
+        FUNCTION TRIM(WS-ADD-RESULT-STR) DELIMITED SPACES
+        '"}]}' DELIMITED SIZE
         INTO WS-RESULT-CONTENT
     END-STRING
     PERFORM BUILD-SUCCESS-RESPONSE
@@ -810,14 +940,60 @@ HANDLE-TOOL-ADD.
 
 *> ============================================================
 *> HANDLE-TOOL-FORMAT-CURRENCY
-*> Placeholder for the format_currency tool (step 003).
-*> Returns a stub response for now.
+*> Format a number as US currency using COBOL's PICTURE clause.
+*> This is the crown jewel -- COBOL's edited numeric pictures
+*> with dollar signs, commas, decimal points, and zero
+*> suppression are genuinely superior to most modern formatting
+*> approaches. The PIC $$$$,$$$,$$$.99 clause does it all.
 *> ============================================================
 HANDLE-TOOL-FORMAT-CURRENCY.
+    *> Extract the "amount" argument -- try both "amount" and
+    *> "value" for flexibility (spec says "amount")
+    MOVE SPACES TO WS-TOOL-RESULT-TEXT
+
+    *> First try params.arguments.amount
+    MOVE SPACES TO WS-EXTRACT-VALUE
+    MOVE '"amount"' TO WS-SEARCH-KEY
+    PERFORM EXTRACT-JSON-VALUE-IN-ARGUMENTS
+    IF KEY-FOUND
+        MOVE WS-EXTRACT-VALUE TO WS-PARAM-ARG-VALUE
+    END-IF
+
+    *> Validate the amount is numeric
+    MOVE FUNCTION TRIM(WS-PARAM-ARG-VALUE)
+        TO WS-NUMERIC-CHECK-VALUE
+    PERFORM VALIDATE-NUMERIC-VALUE
+    IF NUMERIC-IS-INVALID
+        MOVE SPACES TO WS-RESULT-CONTENT
+        STRING
+            '{"isError":true,"content":[{"type":"text"'
+            ',"text":"Invalid input: '
+            'amount must be numeric"}]}'
+            DELIMITED SIZE
+            INTO WS-RESULT-CONTENT
+        END-STRING
+        PERFORM BUILD-SUCCESS-RESPONSE
+        EXIT PARAGRAPH
+    END-IF
+
+    *> Convert to numeric and apply the PICTURE clause
+    COMPUTE WS-CURRENCY-INPUT =
+        FUNCTION NUMVAL(FUNCTION TRIM(WS-PARAM-ARG-VALUE))
+
+    *> The magic happens here: MOVE to a PIC-edited field
+    *> and COBOL's native formatting does all the work
+    MOVE WS-CURRENCY-INPUT TO WS-CURRENCY-FORMATTED
+    MOVE FUNCTION TRIM(WS-CURRENCY-FORMATTED)
+        TO WS-CURRENCY-TRIMMED
+
+    *> Build the tool result response
+    MOVE SPACES TO WS-RESULT-CONTENT
     STRING
-        '{"content":[{"type":"text","text":'
+        '{"content":[{"type":"text","text":"'
         DELIMITED SIZE
-        '"format_currency tool not yet implemented"}]}'
+        FUNCTION TRIM(WS-CURRENCY-TRIMMED) DELIMITED SPACES
+        ' (formatted by COBOL PICTURE clause -- '
+        'you are welcome)"}]}'
         DELIMITED SIZE
         INTO WS-RESULT-CONTENT
     END-STRING
@@ -826,14 +1002,87 @@ HANDLE-TOOL-FORMAT-CURRENCY.
 
 *> ============================================================
 *> HANDLE-TOOL-VALIDATE-DATE
-*> Placeholder for the validate_date tool (step 003).
-*> Returns a stub response for now.
+*> Validate a date in YYYYMMDD format. Checks that the
+*> string is exactly 8 numeric characters, the month is
+*> 01-12, and the day is valid for that month, including
+*> leap year handling for February.
+*>
+*> Leap year rules (COBOL has known these since 1959):
+*>   - Divisible by 4 -> leap year
+*>   - EXCEPT centuries (divisible by 100) -> not leap year
+*>   - EXCEPT centuries divisible by 400 -> leap year
 *> ============================================================
 HANDLE-TOOL-VALIDATE-DATE.
+    SET DATE-IS-VALID TO TRUE
+    MOVE SPACES TO WS-DATE-ERROR-MSG
+
+    *> Get the date argument
+    MOVE FUNCTION TRIM(WS-PARAM-ARG-DATE)
+        TO WS-DATE-INPUT
+
+    *> Check that the input is exactly 8 characters
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-DATE-INPUT))
+        TO WS-DATE-LEN
+    IF WS-DATE-LEN NOT = 8
+        SET DATE-IS-INVALID TO TRUE
+        MOVE "Date must be exactly 8 characters in YYYYMMDD"
+            & " format"
+            TO WS-DATE-ERROR-MSG
+        PERFORM BUILD-DATE-ERROR-RESULT
+        EXIT PARAGRAPH
+    END-IF
+
+    *> Check that all 8 characters are numeric
+    IF WS-DATE-INPUT(1:8) IS NOT NUMERIC
+        SET DATE-IS-INVALID TO TRUE
+        MOVE "Date must contain only numeric digits"
+            & " (YYYYMMDD)"
+            TO WS-DATE-ERROR-MSG
+        PERFORM BUILD-DATE-ERROR-RESULT
+        EXIT PARAGRAPH
+    END-IF
+
+    *> Parse into components
+    MOVE WS-DATE-INPUT(1:4) TO WS-DATE-YEAR
+    MOVE WS-DATE-INPUT(5:2) TO WS-DATE-MONTH
+    MOVE WS-DATE-INPUT(7:2) TO WS-DATE-DAY
+
+    *> Validate month range (01-12)
+    IF WS-DATE-MONTH < 1 OR WS-DATE-MONTH > 12
+        SET DATE-IS-INVALID TO TRUE
+        MOVE "Invalid month -- must be between 01 and 12"
+            TO WS-DATE-ERROR-MSG
+        PERFORM BUILD-DATE-ERROR-RESULT
+        EXIT PARAGRAPH
+    END-IF
+
+    *> Determine maximum days for the month
+    PERFORM DETERMINE-DAYS-IN-MONTH
+
+    *> Validate day range
+    IF WS-DATE-DAY < 1 OR WS-DATE-DAY > WS-DATE-MAX-DAY
+        SET DATE-IS-INVALID TO TRUE
+        EVALUATE TRUE
+            WHEN WS-DATE-MONTH = 2 AND WS-DATE-DAY = 29
+                MOVE "February 29 is not valid -- "
+                    & "not a leap year"
+                    TO WS-DATE-ERROR-MSG
+            WHEN OTHER
+                MOVE "Invalid day for the given month"
+                    TO WS-DATE-ERROR-MSG
+        END-EVALUATE
+        PERFORM BUILD-DATE-ERROR-RESULT
+        EXIT PARAGRAPH
+    END-IF
+
+    *> If we get here, the date is valid
+    MOVE SPACES TO WS-RESULT-CONTENT
     STRING
-        '{"content":[{"type":"text","text":'
+        '{"content":[{"type":"text","text":"'
         DELIMITED SIZE
-        '"validate_date tool not yet implemented"}]}'
+        FUNCTION TRIM(WS-DATE-INPUT) DELIMITED SPACES
+        ' is a valid date. COBOL has certified this '
+        'since 1959."}]}'
         DELIMITED SIZE
         INTO WS-RESULT-CONTENT
     END-STRING
@@ -853,6 +1102,135 @@ HANDLE-TOOL-NOT-FOUND.
         '"Unknown tool: '
         DELIMITED SIZE
         WS-TRIMMED-METHOD DELIMITED SPACES
+        '"}]}' DELIMITED SIZE
+        INTO WS-RESULT-CONTENT
+    END-STRING
+    PERFORM BUILD-SUCCESS-RESPONSE
+    .
+
+*> ============================================================
+*> VALIDATE-NUMERIC-VALUE
+*> Check if WS-NUMERIC-CHECK-VALUE contains a valid numeric
+*> value (integer or decimal, optionally negative).
+*> Sets NUMERIC-IS-VALID or NUMERIC-IS-INVALID.
+*> Accepts: digits, optional leading minus, optional decimal.
+*> ============================================================
+VALIDATE-NUMERIC-VALUE.
+    SET NUMERIC-IS-VALID TO TRUE
+    MOVE 0 TO WS-NUM-HAS-DECIMAL
+    MOVE 0 TO WS-NUM-HAS-DIGIT
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(
+        WS-NUMERIC-CHECK-VALUE)) TO WS-NUM-CHECK-LEN
+
+    *> Empty or blank value is invalid
+    IF WS-NUM-CHECK-LEN = 0 OR
+       FUNCTION TRIM(WS-NUMERIC-CHECK-VALUE) = SPACES
+        SET NUMERIC-IS-INVALID TO TRUE
+        EXIT PARAGRAPH
+    END-IF
+
+    PERFORM VARYING WS-NUM-CHECK-POS FROM 1 BY 1
+        UNTIL WS-NUM-CHECK-POS > WS-NUM-CHECK-LEN
+           OR NUMERIC-IS-INVALID
+        MOVE WS-NUMERIC-CHECK-VALUE(WS-NUM-CHECK-POS:1)
+            TO WS-NUM-CHECK-CHAR
+        EVALUATE TRUE
+            *> Leading minus sign is OK
+            WHEN WS-NUM-CHECK-CHAR = "-"
+                 AND WS-NUM-CHECK-POS = 1
+                CONTINUE
+            *> Digits are always OK
+            WHEN WS-NUM-CHECK-CHAR >= "0"
+                 AND WS-NUM-CHECK-CHAR <= "9"
+                MOVE 1 TO WS-NUM-HAS-DIGIT
+            *> One decimal point is OK
+            WHEN WS-NUM-CHECK-CHAR = "."
+                 AND WS-NUM-HAS-DECIMAL = 0
+                MOVE 1 TO WS-NUM-HAS-DECIMAL
+            *> Anything else is invalid
+            WHEN OTHER
+                SET NUMERIC-IS-INVALID TO TRUE
+        END-EVALUATE
+    END-PERFORM
+
+    *> Must have at least one digit
+    IF WS-NUM-HAS-DIGIT = 0
+        SET NUMERIC-IS-INVALID TO TRUE
+    END-IF
+    .
+
+*> ============================================================
+*> DETERMINE-DAYS-IN-MONTH
+*> Sets WS-DATE-MAX-DAY to the maximum valid day for the
+*> month in WS-DATE-MONTH, taking into account leap years
+*> for February.
+*> ============================================================
+DETERMINE-DAYS-IN-MONTH.
+    EVALUATE WS-DATE-MONTH
+        WHEN 1  MOVE 31 TO WS-DATE-MAX-DAY
+        WHEN 2  PERFORM CHECK-LEAP-YEAR
+                IF IS-LEAP-YEAR
+                    MOVE 29 TO WS-DATE-MAX-DAY
+                ELSE
+                    MOVE 28 TO WS-DATE-MAX-DAY
+                END-IF
+        WHEN 3  MOVE 31 TO WS-DATE-MAX-DAY
+        WHEN 4  MOVE 30 TO WS-DATE-MAX-DAY
+        WHEN 5  MOVE 31 TO WS-DATE-MAX-DAY
+        WHEN 6  MOVE 30 TO WS-DATE-MAX-DAY
+        WHEN 7  MOVE 31 TO WS-DATE-MAX-DAY
+        WHEN 8  MOVE 31 TO WS-DATE-MAX-DAY
+        WHEN 9  MOVE 30 TO WS-DATE-MAX-DAY
+        WHEN 10 MOVE 31 TO WS-DATE-MAX-DAY
+        WHEN 11 MOVE 30 TO WS-DATE-MAX-DAY
+        WHEN 12 MOVE 31 TO WS-DATE-MAX-DAY
+    END-EVALUATE
+    .
+
+*> ============================================================
+*> CHECK-LEAP-YEAR
+*> Determine if WS-DATE-YEAR is a leap year.
+*> Rules: divisible by 4, except centuries, except centuries
+*> divisible by 400. Sets IS-LEAP-YEAR or IS-NOT-LEAP-YEAR.
+*> ============================================================
+CHECK-LEAP-YEAR.
+    SET IS-NOT-LEAP-YEAR TO TRUE
+
+    *> Divisible by 400 -> leap year
+    COMPUTE WS-YEAR-REMAINDER =
+        FUNCTION MOD(WS-DATE-YEAR, 400)
+    IF WS-YEAR-REMAINDER = 0
+        SET IS-LEAP-YEAR TO TRUE
+        EXIT PARAGRAPH
+    END-IF
+
+    *> Divisible by 100 -> NOT leap year (century rule)
+    COMPUTE WS-YEAR-REMAINDER =
+        FUNCTION MOD(WS-DATE-YEAR, 100)
+    IF WS-YEAR-REMAINDER = 0
+        SET IS-NOT-LEAP-YEAR TO TRUE
+        EXIT PARAGRAPH
+    END-IF
+
+    *> Divisible by 4 -> leap year
+    COMPUTE WS-YEAR-REMAINDER =
+        FUNCTION MOD(WS-DATE-YEAR, 4)
+    IF WS-YEAR-REMAINDER = 0
+        SET IS-LEAP-YEAR TO TRUE
+    END-IF
+    .
+
+*> ============================================================
+*> BUILD-DATE-ERROR-RESULT
+*> Builds a tool result with isError:true for date validation
+*> failures. Uses WS-DATE-ERROR-MSG for the error text.
+*> ============================================================
+BUILD-DATE-ERROR-RESULT.
+    MOVE SPACES TO WS-RESULT-CONTENT
+    STRING
+        '{"isError":true,"content":[{"type":"text"'
+        ',"text":"' DELIMITED SIZE
+        FUNCTION TRIM(WS-DATE-ERROR-MSG) DELIMITED SPACES
         '"}]}' DELIMITED SIZE
         INTO WS-RESULT-CONTENT
     END-STRING
