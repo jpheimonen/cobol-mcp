@@ -27,3 +27,20 @@ Hand-rolled parser using character-by-character scanning:
 - `EXTRACT-JSON-VALUE-IN-PARAMS` - one level of nesting (params.key)
 - `EXTRACT-JSON-VALUE-IN-ARGUMENTS` - two levels of nesting (params.arguments.key)
 - INSPECT TALLYING for quick key existence check, then position scanning
+
+## Currency formatting PIC clause
+`PIC $$$$,$$$,$$$.99` is the floating dollar sign form with comma separators and 2 decimal places. Handles values up to ~$10 billion. For zero it produces `$.00`.
+
+## String continuation in free-format
+Use `&` to continue string literals across lines in GnuCOBOL free-format:
+```cobol
+MOVE "First part"
+    & " second part"
+    TO WS-FIELD
+```
+
+## FUNCTION MOD for leap year checks
+`FUNCTION MOD(year, 400)` works for modulo arithmetic. With `FUNCTION ALL INTRINSIC` in REPOSITORY, no need to qualify with FUNCTION keyword (but it works either way).
+
+## EXIT PARAGRAPH for early returns
+Use `EXIT PARAGRAPH` to bail out early from a paragraph (like a `return` statement). This is how early validation errors work in the tool handlers.
